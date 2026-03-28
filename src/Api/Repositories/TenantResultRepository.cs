@@ -70,10 +70,44 @@ public class TenantResultRepository : ITenantResultRepository
         return FromSummaryDocument(response.Resource);
     }
 
+    public async Task SaveContextAsync(InvestigationContext context, CancellationToken ct = default)
+    {
+        var docId = ContextDocumentId(context.RunId);
+
+        try
+        {
+            var existing = await Container.ReadItemAsync<InvestigationContextDocument>(docId, new PartitionKey(context.RunId), cancellationToken: ct);
+            var replacement = ToContextDocument(context);
+            replacement.ETag = existing.Resource.ETag;
+
+            var options = new ItemRequestOptions { IfMatchEtag = replacement.ETag };
+            await Container.ReplaceItemAsync(replacement, docId, new PartitionKey(context.RunId), options, ct);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            await Container.CreateItemAsync(ToContextDocument(context), new PartitionKey(context.RunId), cancellationToken: ct);
+        }
+    }
+
+    public async Task<InvestigationContext?> GetContextAsync(string runId, CancellationToken ct = default)
+    {
+        var docId = ContextDocumentId(runId);
+
+        try
+        {
+            var response = await Container.ReadItemAsync<InvestigationContextDocument>(docId, new PartitionKey(runId), cancellationToken: ct);
+            return FromContextDocument(response.Resource);
+        }
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     public async Task<Finding> AddFindingAsync(Finding finding, CancellationToken ct = default)
     {
         var doc = ToFindingDocument(finding);
-        var response = await Container.CreateItemAsync(doc, new PartitionKey(finding.RunId), cancellationToken: ct);
+        var response = await Container.UpsertItemAsync(doc, new PartitionKey(finding.RunId), cancellationToken: ct);
         return FromFindingDocument(response.Resource);
     }
 
@@ -116,6 +150,8 @@ public class TenantResultRepository : ITenantResultRepository
 
     private static string TenantSummaryId(string runId, string tenantId) => $"{runId}:{tenantId}:summary";
 
+    private static string ContextDocumentId(string runId) => $"{runId}:context";
+
     private static TenantSummaryDocument ToSummaryDocument(TenantInvestigationResult r) => new()
     {
         Id = TenantSummaryId(r.RunId, r.TenantId),
@@ -130,7 +166,9 @@ public class TenantResultRepository : ITenantResultRepository
         FindingsCount = r.FindingsCount,
         ReviewedBy = r.ReviewedBy,
         ReviewedAt = r.ReviewedAt,
-        ReviewNotes = r.ReviewNotes
+        ReviewNotes = r.ReviewNotes,
+        CurrentStage = r.CurrentStage.ToString(),
+        ProgressMessage = r.ProgressMessage
     };
 
     private static TenantInvestigationResult FromSummaryDocument(TenantSummaryDocument d) => new(
@@ -146,7 +184,55 @@ public class TenantResultRepository : ITenantResultRepository
         d.FindingsCount,
         d.ReviewedBy,
         d.ReviewedAt,
-        d.ReviewNotes
+        d.ReviewNotes,
+        string.IsNullOrWhiteSpace(d.CurrentStage) ? WorkflowStage.Queued : Enum.Parse<WorkflowStage>(d.CurrentStage),
+        d.ProgressMessage
+    );
+
+    private static InvestigationContextDocument ToContextDocument(InvestigationContext context) => new()
+    {
+        Id = ContextDocumentId(context.RunId),
+        RunId = context.RunId,
+        CveId = context.CveId,
+        Title = context.Title,
+        TenantIds = context.TenantIds.ToList(),
+        StartedAt = context.StartedAt,
+        NormalizedCveIds = context.NormalizedCveIds?.ToList() ?? [],
+        AffectedProducts = context.AffectedProducts?.Select(product => new AffectedProductDoc
+        {
+            Name = product.Name,
+            VersionRanges = product.VersionRanges?.ToList() ?? []
+        }).ToList() ?? [],
+        Fixes = context.Fixes?.Select(fix => new FixReferenceDoc
+        {
+            ArticleId = fix.ArticleId,
+            Description = fix.Description,
+            Url = fix.Url
+        }).ToList() ?? [],
+        ExploitationStatus = context.ExploitationStatus,
+        DetectionHints = context.DetectionHints?.ToList() ?? [],
+        CollectorQueries = context.CollectorQueries?.Select(query => new CollectorQueryHintDoc
+        {
+            Collector = query.Collector,
+            Query = query.Query,
+            Purpose = query.Purpose
+        }).ToList() ?? [],
+        ResearchSummary = context.ResearchSummary
+    };
+
+    private static InvestigationContext FromContextDocument(InvestigationContextDocument d) => new(
+        d.RunId,
+        d.CveId,
+        d.Title,
+        d.TenantIds,
+        d.StartedAt,
+        d.NormalizedCveIds,
+        d.AffectedProducts.Select(product => new AffectedProduct(product.Name, product.VersionRanges)).ToList(),
+        d.Fixes.Select(fix => new FixReference(fix.ArticleId, fix.Description, fix.Url)).ToList(),
+        d.ExploitationStatus,
+        d.DetectionHints,
+        d.CollectorQueries.Select(query => new CollectorQueryHint(query.Collector, query.Query, query.Purpose)).ToList(),
+        d.ResearchSummary
     );
 
     private static FindingDocument ToFindingDocument(Finding f) => new()
@@ -210,7 +296,48 @@ internal class TenantSummaryDocument
     public string? ReviewedBy { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
     public string? ReviewNotes { get; set; }
+    public string? CurrentStage { get; set; }
+    public string? ProgressMessage { get; set; }
     public string? ETag { get; set; }
+}
+
+internal class InvestigationContextDocument
+{
+    public string Id { get; set; } = string.Empty;
+    public string DocumentType { get; set; } = "investigationContext";
+    public string RunId { get; set; } = string.Empty;
+    public string CveId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public List<string> TenantIds { get; set; } = [];
+    public DateTimeOffset StartedAt { get; set; }
+    public List<string> NormalizedCveIds { get; set; } = [];
+    public List<AffectedProductDoc> AffectedProducts { get; set; } = [];
+    public List<FixReferenceDoc> Fixes { get; set; } = [];
+    public string? ExploitationStatus { get; set; }
+    public List<string> DetectionHints { get; set; } = [];
+    public List<CollectorQueryHintDoc> CollectorQueries { get; set; } = [];
+    public string? ResearchSummary { get; set; }
+    public string? ETag { get; set; }
+}
+
+internal class AffectedProductDoc
+{
+    public string Name { get; set; } = string.Empty;
+    public List<string> VersionRanges { get; set; } = [];
+}
+
+internal class FixReferenceDoc
+{
+    public string ArticleId { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string? Url { get; set; }
+}
+
+internal class CollectorQueryHintDoc
+{
+    public string Collector { get; set; } = string.Empty;
+    public string Query { get; set; } = string.Empty;
+    public string Purpose { get; set; } = string.Empty;
 }
 
 internal class FindingDocument

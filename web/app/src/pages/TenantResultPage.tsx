@@ -23,6 +23,7 @@ import {
   BreadcrumbButton,
   BreadcrumbDivider,
   Divider,
+  Badge,
 } from '@fluentui/react-components';
 import { CheckmarkCircleRegular, DismissCircleRegular } from '@fluentui/react-icons';
 import type { TenantInvestigationResult } from '../types/models';
@@ -68,21 +69,37 @@ export function TenantResultPage() {
   const [submitting, setSubmitting] = useState(false);
   const [ticketSubmitting, setTicketSubmitting] = useState(false);
 
-  const load = async () => {
+  const load = async (showLoader = false) => {
     if (!runId || !tenantId) return;
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
       const r = await api.getTenantResult(runId, tenantId);
       setResult(r);
       setError(null);
     } catch {
       setError('Failed to load tenant result.');
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
   };
 
-  useEffect(() => { load(); }, [runId, tenantId]);
+  useEffect(() => { void load(true); }, [runId, tenantId]);
+
+  useEffect(() => {
+    if (!runId || !tenantId || !result || (result.status !== 'Pending' && result.status !== 'Running')) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void load();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [runId, tenantId, result?.status]);
 
   const handleReview = async () => {
     if (!runId || !tenantId) return;
@@ -151,6 +168,10 @@ export function TenantResultPage() {
           <StatusBadge status={result.status} />
         </div>
         <div className={styles.metaItem}>
+          <Text weight="semibold">Workflow Stage</Text>
+          <Badge appearance="outline" color="informative">{result.currentStage ?? 'Queued'}</Badge>
+        </div>
+        <div className={styles.metaItem}>
           <Text weight="semibold">Verdict</Text>
           <VerdictBadge verdict={result.verdict} />
         </div>
@@ -162,6 +183,12 @@ export function TenantResultPage() {
           <Text weight="semibold">Findings</Text>
           <Text>{result.findingsCount}</Text>
         </div>
+        {result.progressMessage && (
+          <div className={styles.metaItem} style={{ gridColumn: '1 / -1' }}>
+            <Text weight="semibold">Progress</Text>
+            <Body1>{result.progressMessage}</Body1>
+          </div>
+        )}
         {result.reviewedBy && (
           <div className={styles.metaItem}>
             <Text weight="semibold">Reviewed By</Text>

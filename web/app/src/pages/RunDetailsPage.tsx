@@ -63,6 +63,13 @@ const useStyles = makeStyles({
   progressSection: {
     marginBottom: tokens.spacingVerticalL,
   },
+  progressMeta: {
+    display: 'flex',
+    gap: tokens.spacingHorizontalM,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginTop: tokens.spacingVerticalS,
+  },
   clickableRow: {
     cursor: 'pointer',
     ':hover': { backgroundColor: tokens.colorNeutralBackground1Hover },
@@ -78,13 +85,42 @@ export function RunDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadDetails = async (showLoader = false) => {
     if (!runId) return;
-    Promise.all([api.getInvestigation(runId), api.getTenantResults(runId)])
-      .then(([r, t]) => { setRun(r); setTenants(t); })
-      .catch(() => setError('Failed to load run details.'))
-      .finally(() => setLoading(false));
+
+    try {
+      if (showLoader) {
+        setLoading(true);
+      }
+
+      const [r, t] = await Promise.all([api.getInvestigation(runId), api.getTenantResults(runId)]);
+      setRun(r);
+      setTenants(t);
+      setError(null);
+    } catch {
+      setError('Failed to load run details.');
+    } finally {
+      if (showLoader) {
+        setLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    void loadDetails(true);
   }, [runId]);
+
+  useEffect(() => {
+    if (!runId || !run || (run.status !== 'Pending' && run.status !== 'Running')) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadDetails();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [runId, run?.status]);
 
   if (loading) return <div style={{ padding: 40 }}><Spinner label="Loading..." /></div>;
   if (error || !run) return <div style={{ padding: 40 }}><Body1>{error ?? 'Run not found.'}</Body1></div>;
@@ -122,6 +158,11 @@ export function RunDetailsPage() {
       <div className={styles.progressSection}>
         <Text>Tenant progress: {run.tenantsCompleted} / {run.totalTenants}</Text>
         <ProgressBar value={progressValue} style={{ marginTop: 8 }} />
+        <div className={styles.progressMeta}>
+          <Badge appearance="outline" color="informative">{run.currentStage ?? 'Queued'}</Badge>
+          {run.progressMessage && <Text>{run.progressMessage}</Text>}
+          {run.lastCheckpointAt && <Text>Last checkpoint: {new Date(run.lastCheckpointAt).toLocaleString()}</Text>}
+        </div>
       </div>
 
       {/* Summary */}

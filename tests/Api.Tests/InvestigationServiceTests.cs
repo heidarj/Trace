@@ -12,12 +12,19 @@ public class InvestigationServiceTests
 {
     private readonly Mock<IInvestigationRepository> _runRepoMock = new();
     private readonly Mock<ITenantResultRepository> _tenantRepoMock = new();
+    private readonly Mock<IWorkQueueService> _workQueueMock = new();
+    private readonly Mock<IWorkDispatcher> _dispatcherMock = new();
     private readonly Mock<ILogger<InvestigationService>> _loggerMock = new();
     private readonly InvestigationService _service;
 
     public InvestigationServiceTests()
     {
-        _service = new InvestigationService(_runRepoMock.Object, _tenantRepoMock.Object, _loggerMock.Object);
+        _service = new InvestigationService(
+            _runRepoMock.Object,
+            _tenantRepoMock.Object,
+            _workQueueMock.Object,
+            _dispatcherMock.Object,
+            _loggerMock.Object);
     }
 
     [Fact]
@@ -32,8 +39,18 @@ public class InvestigationServiceTests
 
         var expectedRun = new InvestigationRun(
             "run-1", "CVE-2024-12345", "Test CVE", "Test description",
-            InvestigationStatus.Running, DateTimeOffset.UtcNow, null, 2, 0, 0, "test-user"
+            InvestigationStatus.Pending, DateTimeOffset.UtcNow, null, 2, 0, 0, "test-user",
+            WorkflowStage.Queued, "Queued CVE research.", DateTimeOffset.UtcNow
         );
+
+        var queuedWork = new WorkQueueItem(
+            "research",
+            "run-1",
+            WorkItemType.Research,
+            WorkItemStatus.Pending,
+            DateTimeOffset.UtcNow,
+            ProgressMessage: "Queued CVE research.",
+            LastUpdatedAt: DateTimeOffset.UtcNow);
 
         _runRepoMock.Setup(r => r.CreateAsync(It.IsAny<InvestigationRun>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedRun);
@@ -41,11 +58,25 @@ public class InvestigationServiceTests
         _tenantRepoMock.Setup(r => r.CreateAsync(It.IsAny<TenantInvestigationResult>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((TenantInvestigationResult r, CancellationToken _) => r);
 
+        _workQueueMock.Setup(q => q.QueueResearchAsync("run-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(queuedWork);
+
+        _dispatcherMock.Setup(d => d.QueueAsync(It.IsAny<QueuedWorkReference>(), It.IsAny<CancellationToken>()))
+            .Returns(ValueTask.CompletedTask);
+
         var result = await _service.StartInvestigationAsync(request, "test-user");
 
         result.Should().BeEquivalentTo(expectedRun);
-        _runRepoMock.Verify(r => r.CreateAsync(It.IsAny<InvestigationRun>(), It.IsAny<CancellationToken>()), Times.Once);
-        _tenantRepoMock.Verify(r => r.CreateAsync(It.IsAny<TenantInvestigationResult>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _runRepoMock.Verify(r => r.CreateAsync(
+            It.Is<InvestigationRun>(run => run.Status == InvestigationStatus.Pending && run.CurrentStage == WorkflowStage.Queued),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _tenantRepoMock.Verify(r => r.CreateAsync(
+            It.Is<TenantInvestigationResult>(tenant => tenant.CurrentStage == WorkflowStage.Queued && tenant.Status == InvestigationStatus.Pending),
+            It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _workQueueMock.Verify(q => q.QueueResearchAsync("run-1", It.IsAny<CancellationToken>()), Times.Once);
+        _dispatcherMock.Verify(d => d.QueueAsync(
+            It.Is<QueuedWorkReference>(work => work.RunId == "run-1" && work.WorkItemId == "research"),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -96,5 +127,41 @@ public class InvestigationServiceTests
         var result = await _service.GetRunAsync("nonexistent");
 
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetRunAsync_HydratesTenantProgress()
+    {
+        var run = new InvestigationRun(
+            "run-1", "CVE-2024-12345", "Test CVE", null,
+            InvestigationStatus.Running, DateTimeOffset.UtcNow, null,
+            2, 0, 0, "test-user",
+            WorkflowStage.TenantFanOut, "Research complete.", DateTimeOffset.UtcNow);
+
+        var tenants = new List<TenantInvestigationResult>
+        {
+            new(
+                "run-1:tenant-1:summary", "run-1", "tenant-1", "Tenant 1",
+                ExposureVerdict.Exposed, InvestigationStatus.Completed, ReviewStatus.Pending,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, 2,
+                null, null, null,
+                WorkflowStage.Completed, "Tenant complete."),
+            new(
+                "run-1:tenant-2:summary", "run-1", "tenant-2", "Tenant 2",
+                ExposureVerdict.Unknown, InvestigationStatus.Pending, ReviewStatus.Pending,
+                DateTimeOffset.UtcNow, null, 0,
+                null, null, null,
+                WorkflowStage.Queued, "Queued.")
+        };
+
+        _runRepoMock.Setup(r => r.GetByIdAsync("run-1", It.IsAny<CancellationToken>())).ReturnsAsync(run);
+        _tenantRepoMock.Setup(r => r.ListByRunAsync("run-1", It.IsAny<CancellationToken>())).ReturnsAsync(tenants);
+
+        var result = await _service.GetRunAsync("run-1");
+
+        result.Should().NotBeNull();
+        result!.TenantsCompleted.Should().Be(1);
+        result.FindingsCount.Should().Be(2);
+        result.ProgressMessage.Should().Contain("1 of 2");
     }
 }

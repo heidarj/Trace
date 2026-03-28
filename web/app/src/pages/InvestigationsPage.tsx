@@ -72,6 +72,9 @@ const useStyles = makeStyles({
       backgroundColor: tokens.colorNeutralBackground1Hover,
     },
   },
+  progressHint: {
+    color: tokens.colorNeutralForeground3,
+  },
 });
 
 export function InvestigationsPage() {
@@ -104,6 +107,18 @@ export function InvestigationsPage() {
   };
 
   useEffect(() => { loadRuns(); }, []);
+
+  useEffect(() => {
+    if (!runs.some(run => run.status === 'Pending' || run.status === 'Running')) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadRuns();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [runs]);
 
   const handleSubmit = async () => {
     try {
@@ -240,7 +255,14 @@ export function InvestigationsPage() {
                     <Text weight="semibold" style={{ fontFamily: 'monospace' }}>{run.cveId}</Text>
                   </TableCellLayout>
                 </TableCell>
-                <TableCell>{run.title}</TableCell>
+                <TableCell>
+                  <TableCellLayout>
+                    <Text>{run.title}</Text>
+                    {run.progressMessage && (
+                      <Text size={200} className={styles.progressHint}>{run.progressMessage}</Text>
+                    )}
+                  </TableCellLayout>
+                </TableCell>
                 <TableCell><StatusBadge status={run.status} /></TableCell>
                 <TableCell>{run.tenantsCompleted}/{run.totalTenants}</TableCell>
                 <TableCell>

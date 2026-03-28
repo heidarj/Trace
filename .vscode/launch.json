@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Trace AppHost",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/AppHost/Trace.AppHost.csproj",
+      "preLaunchTask": "apphost: build"
+    }
+  ]
+}

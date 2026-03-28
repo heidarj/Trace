@@ -48,7 +48,10 @@ public static class SeedDataService
                 tenants.Length,
                 status == InvestigationStatus.Completed ? tenants.Length : status == InvestigationStatus.Running ? 2 : 0,
                 status == InvestigationStatus.Completed ? new Random(runId.GetHashCode()).Next(2, 12) : 0,
-                "seed-admin"
+                "seed-admin",
+                status == InvestigationStatus.Completed ? WorkflowStage.Completed : status == InvestigationStatus.Running ? WorkflowStage.TenantFanOut : WorkflowStage.Queued,
+                status == InvestigationStatus.Completed ? "Seeded investigation completed." : status == InvestigationStatus.Running ? "Seeded tenant investigations are still running." : "Seeded investigation is queued.",
+                started.AddMinutes(20)
             );
 
             await runRepo.CreateAsync(run, ct);
@@ -87,7 +90,9 @@ public static class SeedDataService
                     findings,
                     review == ReviewStatus.Approved ? "alice@contoso.com" : null,
                     review == ReviewStatus.Approved ? started.AddHours(3) : null,
-                    review == ReviewStatus.Approved ? "Reviewed and confirmed." : null
+                    review == ReviewStatus.Approved ? "Reviewed and confirmed." : null,
+                    tenantStatus == InvestigationStatus.Completed ? WorkflowStage.Completed : tenantStatus == InvestigationStatus.Running ? WorkflowStage.TenantFanOut : WorkflowStage.Queued,
+                    tenantStatus == InvestigationStatus.Completed ? "Seeded tenant investigation completed." : tenantStatus == InvestigationStatus.Running ? "Seeded tenant investigation is in progress." : "Seeded tenant investigation is queued."
                 );
 
                 await tenantRepo.CreateAsync(tenantResult, ct);

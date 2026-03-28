@@ -8,6 +8,8 @@ public interface ITenantResultRepository
     Task<TenantInvestigationResult?> GetAsync(string runId, string tenantId, CancellationToken ct = default);
     Task<IReadOnlyList<TenantInvestigationResult>> ListByRunAsync(string runId, CancellationToken ct = default);
     Task<TenantInvestigationResult> UpdateAsync(TenantInvestigationResult result, CancellationToken ct = default);
+    Task SaveContextAsync(InvestigationContext context, CancellationToken ct = default);
+    Task<InvestigationContext?> GetContextAsync(string runId, CancellationToken ct = default);
     Task<Finding> AddFindingAsync(Finding finding, CancellationToken ct = default);
     Task<IReadOnlyList<Finding>> GetFindingsAsync(string runId, string tenantId, CancellationToken ct = default);
     Task<TicketRecommendation> CreateTicketAsync(TicketRecommendation ticket, CancellationToken ct = default);

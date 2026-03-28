@@ -42,3 +42,28 @@ public enum TicketStatus
     Acknowledged,
     Resolved
 }
+
+public enum WorkflowStage
+{
+    Queued,
+    Research,
+    TenantFanOut,
+    Aggregation,
+    Completed,
+    Failed
+}
+
+public enum WorkItemStatus
+{
+    Pending,
+    Running,
+    Completed,
+    Failed
+}
+
+public enum WorkItemType
+{
+    Research,
+    TenantInvestigation,
+    Aggregation
+}

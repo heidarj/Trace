@@ -1,49 +1,53 @@
 using Trace.Api.Endpoints;
 using Trace.Api.Repositories;
 using Trace.Api.Services;
+using Trace.Api.Workers;
+using Trace.Api.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
-// Register CosmosClient - use Aspire integration if available, otherwise fall back to direct connection
 var cosmosConnectionString = builder.Configuration.GetConnectionString("cosmos");
-if (!string.IsNullOrEmpty(cosmosConnectionString))
+if (string.IsNullOrWhiteSpace(cosmosConnectionString))
 {
-    builder.Services.AddSingleton(new Microsoft.Azure.Cosmos.CosmosClient(cosmosConnectionString));
+    throw new InvalidOperationException(
+        "Trace API requires ConnectionStrings__cosmos. Start the API through AppHost or set ConnectionStrings__cosmos explicitly before running the API directly.");
 }
-else
-{
-    // Local dev fallback: connects to the Cosmos DB emulator on localhost.
-    // The emulator uses a self-signed certificate and a well-known public key,
-    // so DangerousAcceptAnyServerCertificateValidator is intentional here.
-    // This branch is only reached when no "cosmos" connection string is configured
-    // (i.e., never in production, where Aspire injects the real connection string).
-    builder.Services.AddSingleton(new Microsoft.Azure.Cosmos.CosmosClient(
-        "AccountEndpoint=https://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b5UZy208fP/p+KFsVL0kAMVKHh4Zh==;",
-        new Microsoft.Azure.Cosmos.CosmosClientOptions { HttpClientFactory = () => new HttpClient(new HttpClientHandler { ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }) }));
-}
+
+builder.AddAzureCosmosClient(
+    "cosmos",
+    configureClientOptions: clientOptions =>
+    {
+        if (ShouldTrustLocalCosmosCertificate(builder.Configuration, cosmosConnectionString))
+        {
+            clientOptions.HttpClientFactory = static () =>
+                new HttpClient(
+                    new HttpClientHandler
+                    {
+                        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                    });
+        }
+    });
 
 builder.Services.AddSingleton<ICosmosDbService, CosmosDbService>();
 builder.Services.AddSingleton<IInvestigationRepository, InvestigationRepository>();
 builder.Services.AddSingleton<ITenantResultRepository, TenantResultRepository>();
+builder.Services.AddSingleton<IWorkQueueRepository, WorkQueueRepository>();
+builder.Services.AddSingleton<IWorkDispatcher, ChannelWorkDispatcher>();
+builder.Services.AddSingleton<IWorkQueueService, WorkQueueService>();
+builder.Services.AddSingleton<IResearchModelClient, MockResearchModelClient>();
+builder.Services.AddScoped<ICveResearchTool, RequestNormalizationResearchTool>();
+builder.Services.AddScoped<ICveResearchTool, KeywordEnrichmentResearchTool>();
+builder.Services.AddScoped<ICveResearchWorkflow, CveResearchWorkflow>();
+builder.Services.AddScoped<IEvidenceCollector, AzureMockedCollector>();
+builder.Services.AddScoped<IEvidenceCollector, DefenderMockedCollector>();
+builder.Services.AddScoped<ITenantInvestigationWorkflow, TenantInvestigationWorkflow>();
+builder.Services.AddScoped<IFindingCorrelator, FindingCorrelator>();
+builder.Services.AddScoped<IWorkItemProcessor, WorkItemProcessor>();
 builder.Services.AddSingleton<IInvestigationService, InvestigationService>();
 builder.Services.AddSingleton<ITicketService, TicketService>();
-
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:3000",
-                "http://localhost:5173",
-                "https://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
-});
+builder.Services.AddHostedService<InvestigationBackgroundWorker>();
 
 var entraConfig = builder.Configuration.GetSection("AzureAd");
 if (entraConfig.Exists() && !string.IsNullOrWhiteSpace(entraConfig["TenantId"]))
@@ -73,7 +77,6 @@ var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -97,3 +100,14 @@ app.MapTicketEndpoints();
 app.Run();
 
 public partial class Program { }
+
+static bool ShouldTrustLocalCosmosCertificate(IConfiguration configuration, string cosmosConnectionString)
+{
+    if (configuration.GetValue("UseContainerEmulators", false))
+    {
+        return true;
+    }
+
+    return cosmosConnectionString.Contains("localhost:8081", StringComparison.OrdinalIgnoreCase)
+        || cosmosConnectionString.Contains("127.0.0.1:8081", StringComparison.OrdinalIgnoreCase);
+}

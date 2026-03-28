@@ -75,7 +75,10 @@ public class InvestigationRepository : IInvestigationRepository
         TotalTenants = run.TotalTenants,
         TenantsCompleted = run.TenantsCompleted,
         FindingsCount = run.FindingsCount,
-        CreatedBy = run.CreatedBy
+        CreatedBy = run.CreatedBy,
+        CurrentStage = run.CurrentStage.ToString(),
+        ProgressMessage = run.ProgressMessage,
+        LastCheckpointAt = run.LastCheckpointAt
     };
 
     private static InvestigationRun FromDocument(InvestigationRunDocument doc) => new(
@@ -89,7 +92,10 @@ public class InvestigationRepository : IInvestigationRepository
         doc.TotalTenants,
         doc.TenantsCompleted,
         doc.FindingsCount,
-        doc.CreatedBy
+        doc.CreatedBy,
+        string.IsNullOrWhiteSpace(doc.CurrentStage) ? WorkflowStage.Queued : Enum.Parse<WorkflowStage>(doc.CurrentStage),
+        doc.ProgressMessage,
+        doc.LastCheckpointAt
     );
 }
 
@@ -106,4 +112,7 @@ internal class InvestigationRunDocument
     public int TenantsCompleted { get; set; }
     public int FindingsCount { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
+    public string? CurrentStage { get; set; }
+    public string? ProgressMessage { get; set; }
+    public DateTimeOffset? LastCheckpointAt { get; set; }
 }

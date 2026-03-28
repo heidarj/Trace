@@ -9,6 +9,7 @@ public class CosmosDbService : ICosmosDbService
     private const string DatabaseId = "tracedb";
     private const string InvestigationRunsContainer = "InvestigationRuns";
     private const string RunTenantDataContainer = "RunTenantData";
+    private const string WorkQueueContainer = "WorkQueue";
 
     public CosmosDbService(CosmosClient client, ILogger<CosmosDbService> logger)
     {
@@ -29,6 +30,10 @@ public class CosmosDbService : ICosmosDbService
 
         await db.CreateContainerIfNotExistsAsync(
             new ContainerProperties(RunTenantDataContainer, "/runId"),
+            cancellationToken: cancellationToken);
+
+        await db.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(WorkQueueContainer, "/runId"),
             cancellationToken: cancellationToken);
 
         _logger.LogInformation("Cosmos DB initialization complete.");

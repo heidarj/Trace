@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "apphost: build",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "src/AppHost/Trace.AppHost.csproj"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "apphost: run",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "src/AppHost/Trace.AppHost.csproj"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

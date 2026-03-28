@@ -7,15 +7,21 @@ public class InvestigationService : IInvestigationService
 {
     private readonly IInvestigationRepository _runRepo;
     private readonly ITenantResultRepository _tenantRepo;
+    private readonly IWorkQueueService _workQueue;
+    private readonly IWorkDispatcher _dispatcher;
     private readonly ILogger<InvestigationService> _logger;
 
     public InvestigationService(
         IInvestigationRepository runRepo,
         ITenantResultRepository tenantRepo,
+        IWorkQueueService workQueue,
+        IWorkDispatcher dispatcher,
         ILogger<InvestigationService> logger)
     {
         _runRepo = runRepo;
         _tenantRepo = tenantRepo;
+        _workQueue = workQueue;
+        _dispatcher = dispatcher;
         _logger = logger;
     }
 
@@ -32,13 +38,16 @@ public class InvestigationService : IInvestigationService
             request.CveId,
             request.Title,
             request.Description,
-            InvestigationStatus.Running,
+            InvestigationStatus.Pending,
             now,
             null,
             request.TenantIds.Count,
             0,
             0,
-            createdBy
+            createdBy,
+            WorkflowStage.Queued,
+            "Queued CVE research.",
+            now
         );
 
         var created = await _runRepo.CreateAsync(run, ct);
@@ -57,19 +66,44 @@ public class InvestigationService : IInvestigationService
                 0,
                 null,
                 null,
-                null
+                null,
+                WorkflowStage.Queued,
+                "Queued for tenant investigation."
             ), ct));
 
         await Task.WhenAll(tenantTasks);
 
+        var researchWork = await _workQueue.QueueResearchAsync(created.Id, ct);
+        await _dispatcher.QueueAsync(new QueuedWorkReference(created.Id, researchWork.Id), ct);
+
         return created;
     }
 
-    public async Task<InvestigationRun?> GetRunAsync(string runId, CancellationToken ct = default) =>
-        await _runRepo.GetByIdAsync(runId, ct);
+    public async Task<InvestigationRun?> GetRunAsync(string runId, CancellationToken ct = default)
+    {
+        var run = await _runRepo.GetByIdAsync(runId, ct);
+        if (run is null)
+        {
+            return null;
+        }
 
-    public async Task<IReadOnlyList<InvestigationRun>> ListRecentRunsAsync(int limit = 20, CancellationToken ct = default) =>
-        await _runRepo.ListRecentAsync(limit, ct);
+        var tenantResults = await _tenantRepo.ListByRunAsync(runId, ct);
+        return HydrateRun(run, tenantResults);
+    }
+
+    public async Task<IReadOnlyList<InvestigationRun>> ListRecentRunsAsync(int limit = 20, CancellationToken ct = default)
+    {
+        var runs = await _runRepo.ListRecentAsync(limit, ct);
+        var hydrated = new List<InvestigationRun>(runs.Count);
+
+        foreach (var run in runs)
+        {
+            var tenantResults = await _tenantRepo.ListByRunAsync(run.Id, ct);
+            hydrated.Add(HydrateRun(run, tenantResults));
+        }
+
+        return hydrated;
+    }
 
     public async Task<IReadOnlyList<TenantInvestigationResult>> GetTenantResultsAsync(string runId, CancellationToken ct = default) =>
         await _tenantRepo.ListByRunAsync(runId, ct);
@@ -93,5 +127,27 @@ public class InvestigationService : IInvestigationService
         };
 
         return await _tenantRepo.UpdateAsync(updated, ct);
+    }
+
+    private static InvestigationRun HydrateRun(InvestigationRun run, IReadOnlyList<TenantInvestigationResult> tenantResults)
+    {
+        if (tenantResults.Count == 0)
+        {
+            return run;
+        }
+
+        var tenantsCompleted = tenantResults.Count(result => result.Status == InvestigationStatus.Completed);
+        var findingsCount = tenantResults.Sum(result => result.FindingsCount);
+
+        var progressMessage = run.CurrentStage == WorkflowStage.TenantFanOut && run.Status is InvestigationStatus.Pending or InvestigationStatus.Running
+            ? $"Tenant investigations completed for {tenantsCompleted} of {run.TotalTenants} tenants."
+            : run.ProgressMessage;
+
+        return run with
+        {
+            TenantsCompleted = tenantsCompleted,
+            FindingsCount = findingsCount,
+            ProgressMessage = progressMessage
+        };
     }
 }

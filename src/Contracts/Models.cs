@@ -11,7 +11,10 @@ public record InvestigationRun(
     int TotalTenants,
     int TenantsCompleted,
     int FindingsCount,
-    string CreatedBy
+    string CreatedBy,
+    WorkflowStage CurrentStage = WorkflowStage.Queued,
+    string? ProgressMessage = null,
+    DateTimeOffset? LastCheckpointAt = null
 );
 
 public record InvestigationRunSummary(
@@ -29,7 +32,31 @@ public record InvestigationContext(
     string CveId,
     string Title,
     IReadOnlyList<string> TenantIds,
-    DateTimeOffset StartedAt
+    DateTimeOffset StartedAt,
+    IReadOnlyList<string>? NormalizedCveIds = null,
+    IReadOnlyList<AffectedProduct>? AffectedProducts = null,
+    IReadOnlyList<FixReference>? Fixes = null,
+    string? ExploitationStatus = null,
+    IReadOnlyList<string>? DetectionHints = null,
+    IReadOnlyList<CollectorQueryHint>? CollectorQueries = null,
+    string? ResearchSummary = null
+);
+
+public record AffectedProduct(
+    string Name,
+    IReadOnlyList<string>? VersionRanges = null
+);
+
+public record FixReference(
+    string ArticleId,
+    string Description,
+    string? Url = null
+);
+
+public record CollectorQueryHint(
+    string Collector,
+    string Query,
+    string Purpose
 );
 
 public record TenantInvestigationResult(
@@ -45,7 +72,9 @@ public record TenantInvestigationResult(
     int FindingsCount,
     string? ReviewedBy,
     DateTimeOffset? ReviewedAt,
-    string? ReviewNotes
+    string? ReviewNotes,
+    WorkflowStage CurrentStage = WorkflowStage.Queued,
+    string? ProgressMessage = null
 );
 
 public record Finding(
@@ -91,4 +120,22 @@ public record TicketRecommendation(
     DateTimeOffset CreatedAt,
     string? ExternalTicketId,
     string? ExternalSystem
+);
+
+public record WorkQueueItem(
+    string Id,
+    string RunId,
+    WorkItemType WorkType,
+    WorkItemStatus Status,
+    DateTimeOffset CreatedAt,
+    string? TenantId = null,
+    string? ParentWorkItemId = null,
+    DateTimeOffset? StartedAt = null,
+    DateTimeOffset? CompletedAt = null,
+    DateTimeOffset? LeaseExpiresAt = null,
+    string? WorkerId = null,
+    int AttemptCount = 0,
+    string? ProgressMessage = null,
+    string? ErrorMessage = null,
+    DateTimeOffset? LastUpdatedAt = null
 );

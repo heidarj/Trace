@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.3.0" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- Aspire 9.x on .NET 10: do NOT set IsAspireHost (that was the old workload approach).
-         The Aspire.Hosting.AppHost NuGet package provides all required MSBuild targets.
-         ProjectReferences must include IsAspireProjectResource="true" for Aspire to
-         generate the Projects.* source stubs used in AddProject<T>() calls. -->
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>trace-apphost-codespaces</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" Version="9.3.0" />
@@ -12,8 +11,6 @@
     <PackageReference Include="Aspire.Hosting.NodeJs" Version="9.3.0" />
   </ItemGroup>
   <ItemGroup>
-    <!-- IsAspireProjectResource="true" tells the Aspire MSBuild generator to produce
-         the Projects.Trace_Api source stub so AddProject<Projects.Trace_Api>() compiles. -->
     <ProjectReference Include="..\Api\Trace.Api.csproj" IsAspireProjectResource="true" />
   </ItemGroup>
 </Project>

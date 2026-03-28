@@ -1,4 +1,5 @@
 export type InvestigationStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Cancelled';
+export type WorkflowStage = 'Queued' | 'Research' | 'TenantFanOut' | 'Aggregation' | 'Completed' | 'Failed';
 export type ExposureVerdict = 'Unknown' | 'NotExposed' | 'PotentiallyExposed' | 'Exposed' | 'Confirmed';
 export type FindingType = 'VulnerableResourceFound' | 'MissingPatch' | 'MisconfiguredPolicy' | 'ExposedEndpoint' | 'SuspiciousActivity' | 'Informational';
 export type ReviewStatus = 'Pending' | 'Approved' | 'Rejected';
@@ -16,6 +17,9 @@ export interface InvestigationRun {
   tenantsCompleted: number;
   findingsCount: number;
   createdBy: string;
+  currentStage?: WorkflowStage;
+  progressMessage?: string;
+  lastCheckpointAt?: string;
 }
 
 export interface TenantInvestigationResult {
@@ -32,6 +36,8 @@ export interface TenantInvestigationResult {
   reviewedBy?: string;
   reviewedAt?: string;
   reviewNotes?: string;
+  currentStage?: WorkflowStage;
+  progressMessage?: string;
 }
 
 export interface EvidenceArtifact {
