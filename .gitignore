@@ -1,0 +1,28 @@
+# .NET
+obj/
+bin/
+*.user
+.vs/
+.idea/
+*.suo
+*.ntvs_analysis.dat
+*.njsproj.user
+
+# Node / React
+node_modules/
+dist/
+.env.local
+.env.production
+
+# Build outputs
+**/publish/
+
+# Aspire
+.aspire/
+
+# macOS
+.DS_Store
+
+# Test results
+TestResults/
+coverage/
